@@ -9,6 +9,12 @@ export interface Settings {
     referenceOdds: number;
     stopOnTarget: boolean;
     lossRecoveryPerc: number;
+    profitCalculationMode: ProfitCalculationMode;
+}
+
+export enum ProfitCalculationMode {
+    SERIES = 'SERIES',
+    STEP = 'STEP',
 }
 
 export enum BetType {

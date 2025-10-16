@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import SettingsPanel from './components/SettingsPanel';
 import ProgressionTable from './components/ProgressionTable';
 import SummaryDisplay from './components/SummaryDisplay';
 import InstructionsModal from './components/InstructionsModal';
 import useProgression from './hooks/useProgression';
-import { Settings } from './types';
+import { Settings, ProgressionRow, ProfitCalculationMode } from './types';
 
 const App: React.FC = () => {
     const [settings, setSettings] = useState<Settings>({
@@ -18,6 +18,7 @@ const App: React.FC = () => {
         referenceOdds: 5,
         stopOnTarget: true,
         lossRecoveryPerc: 100,
+        profitCalculationMode: ProfitCalculationMode.SERIES,
     });
     const [isInstructionsVisible, setIsInstructionsVisible] = useState(false);
 
@@ -28,7 +29,17 @@ const App: React.FC = () => {
         }));
     };
 
-    const { progression, updateProgressionRow, generateProgression, addRow, deleteRow } = useProgression(settings);
+    const { progression, setProgression, updateProgressionRow, generateProgression, addRow, deleteRow } = useProgression(settings);
+
+    useEffect(() => {
+        generateProgression();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const handleLoadProgression = (loadedSettings: Settings, loadedProgression: ProgressionRow[]) => {
+        setSettings(loadedSettings);
+        setProgression(loadedProgression);
+    };
 
     return (
         <div className="bg-slate-900 text-white min-h-screen font-sans p-4 lg:p-8">
@@ -57,7 +68,13 @@ const App: React.FC = () => {
             </header>
             <main className="grid grid-cols-1 lg:grid-cols-4 gap-8">
                 <div className="lg:col-span-1">
-                    <SettingsPanel settings={settings} onSettingsChange={handleSettingsChange} onRegenerate={generateProgression} />
+                    <SettingsPanel 
+                        settings={settings} 
+                        progression={progression}
+                        onSettingsChange={handleSettingsChange} 
+                        onRegenerate={generateProgression}
+                        onLoad={handleLoadProgression}
+                    />
                 </div>
                 <div className="lg:col-span-3 space-y-6">
                     <SummaryDisplay settings={settings} rows={progression} />

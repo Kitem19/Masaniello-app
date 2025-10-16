@@ -1,15 +1,22 @@
-import React, { useState, useMemo } from 'react';
-import { Settings } from '../types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Settings, ProgressionRow, ProfitCalculationMode } from '../types';
 
 interface ControlPanelProps {
     settings: Settings;
+    progression: ProgressionRow[];
     onSettingsChange: (newSettings: Partial<Settings>) => void;
     onRegenerate: () => void;
+    onLoad: (settings: Settings, progression: ProgressionRow[]) => void;
 }
 
-const formatCurrency = (value: number) => {
-    return (value ?? 0).toLocaleString('it-IT', { style: 'currency', currency: 'EUR' });
-};
+interface SavedState {
+    name: string;
+    settings: Settings;
+    progression: ProgressionRow[];
+    timestamp: number;
+}
+
+const STORAGE_KEY = 'masaniello_progressions_kitem';
 
 const BetfairCalculator: React.FC = () => {
     const [commission, setCommission] = useState(5);
@@ -26,17 +33,17 @@ const BetfairCalculator: React.FC = () => {
                 Betfair Calculator
             </h3>
             <div className="space-y-3">
-                <CalcInput label="Commissione (%)" value={commission} onChange={e => setCommission(parseFloat(e.target.value) || 0)} />
+                <CalcInput label="Commissione (%)" value={commission} onChange={e => setCommission(parseFloat(e.target.value.replace(',', '.')) || 0)} />
                 <hr className="border-slate-700" />
                 <div>
                     <h4 className="font-semibold text-gray-300 text-sm mb-2">Quota BACK Netta</h4>
-                    <CalcInput label="Quota BACK" value={backOdds} onChange={e => setBackOdds(parseFloat(e.target.value) || 0)} />
+                    <CalcInput label="Quota BACK" value={backOdds} onChange={e => setBackOdds(parseFloat(e.target.value.replace(',', '.')) || 0)} />
                     <p className="text-sm mt-2">Quota Netta: <span className="font-bold text-yellow-300">{netBackOdds.toFixed(2)}</span></p>
                 </div>
                 <hr className="border-slate-700" />
                 <div>
                     <h4 className="font-semibold text-gray-300 text-sm mb-2">Inversione Quota LAY</h4>
-                     <CalcInput label="Quota LAY" value={layOdds} onChange={e => setLayOdds(parseFloat(e.target.value) || 0)} />
+                     <CalcInput label="Quota LAY" value={layOdds} onChange={e => setLayOdds(parseFloat(e.target.value.replace(',', '.')) || 0)} />
                     <p className="text-sm mt-2">Quota Inversa (BACK): <span className="font-bold text-yellow-300">{inverseLayOdds.toFixed(2)}</span></p>
                 </div>
             </div>
@@ -47,19 +54,91 @@ const BetfairCalculator: React.FC = () => {
 const CalcInput: React.FC<{label: string; value: number; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;}> = ({label, value, onChange}) => (
     <div>
         <label className="block text-xs font-medium text-gray-400 mb-1">{label}</label>
-        <input type="number" step="0.01" value={value} onChange={onChange} className="w-full bg-slate-800 border-slate-600 rounded px-2 py-1 text-sm text-yellow-300 focus:ring-cyan-500 focus:border-cyan-500" />
+        <input type="text" inputMode="decimal" value={String(value).replace('.', ',')} onChange={onChange} className="w-full bg-slate-800 border-slate-600 rounded px-2 py-1 text-sm text-yellow-300 focus:ring-cyan-500 focus:border-cyan-500" />
     </div>
 );
 
 
-const SettingsPanel: React.FC<ControlPanelProps> = ({ settings, onSettingsChange, onRegenerate }) => {
+const SettingsPanel: React.FC<ControlPanelProps> = ({ settings, progression, onSettingsChange, onRegenerate, onLoad }) => {
+    
+    const [savedStates, setSavedStates] = useState<SavedState[]>([]);
+    const [selectedStateName, setSelectedStateName] = useState<string>('');
+    
+    useEffect(() => {
+        try {
+            const rawData = localStorage.getItem(STORAGE_KEY);
+            if (rawData) {
+                const parsedData: SavedState[] = JSON.parse(rawData);
+                // Ensure legacy saves without the new setting get a default value
+                const sanitizedData = parsedData.map(s => ({
+                    ...s,
+                    settings: {
+                        ...s.settings,
+                        profitCalculationMode: s.settings.profitCalculationMode || ProfitCalculationMode.SERIES,
+                    }
+                }));
+                sanitizedData.sort((a, b) => b.timestamp - a.timestamp); // Sort by most recent
+                setSavedStates(sanitizedData);
+            }
+        } catch (error) {
+            console.error("Failed to load progressions from localStorage", error);
+        }
+    }, []);
+
+    const handleSave = () => {
+        const name = prompt('Inserisci un nome per la progressione:');
+        if (!name || name.trim() === '') return;
+
+        if (savedStates.some(s => s.name === name)) {
+            if (!confirm(`Una progressione con nome "${name}" esiste già. Vuoi sovrascriverla?`)) {
+                return;
+            }
+        }
+        
+        const newState: SavedState = { name, settings, progression, timestamp: Date.now() };
+        const otherStates = savedStates.filter(s => s.name !== name);
+        const newStates = [newState, ...otherStates];
+        newStates.sort((a, b) => b.timestamp - a.timestamp);
+
+
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(newStates));
+            setSavedStates(newStates);
+            setSelectedStateName(name);
+            alert(`Progressione "${name}" salvata!`);
+        } catch (error) {
+            console.error("Failed to save progression to localStorage", error);
+            alert("Errore: Impossibile salvare la progressione. Lo spazio di archiviazione potrebbe essere pieno.");
+        }
+    };
+
+    const handleLoad = () => {
+        if (!selectedStateName) return;
+        const stateToLoad = savedStates.find(s => s.name === selectedStateName);
+        if (stateToLoad) {
+            onLoad(stateToLoad.settings, stateToLoad.progression);
+             alert(`Progressione "${selectedStateName}" caricata!`);
+        }
+    };
+
+    const handleDelete = () => {
+        if (!selectedStateName) return;
+        if (!confirm(`Sei sicuro di voler eliminare la progressione "${selectedStateName}"? L'azione è irreversibile.`)) {
+            return;
+        }
+        const newStates = savedStates.filter(s => s.name !== selectedStateName);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(newStates));
+        setSavedStates(newStates);
+        setSelectedStateName(''); // Reset selection
+        alert(`Progressione "${selectedStateName}" eliminata.`);
+    };
     
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value, type, checked } = e.target;
         if (type === 'checkbox') {
             onSettingsChange({ [name]: checked });
         } else {
-            onSettingsChange({ [name]: parseFloat(value) || 0 });
+            onSettingsChange({ [name]: parseFloat(value.replace(',', '.')) || 0 });
         }
     };
 
@@ -72,6 +151,25 @@ const SettingsPanel: React.FC<ControlPanelProps> = ({ settings, onSettingsChange
                     <Input label="Numero totale degli eventi" name="totalEvents" value={settings.totalEvents} onChange={handleInputChange} />
                     <Input label="Numero minimo di eventi attesi" name="expectedWins" value={settings.expectedWins} onChange={handleInputChange} />
                     <Input label="Obiettivo Utile (%)" name="profitTargetPerc" value={settings.profitTargetPerc} onChange={handleInputChange} />
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">Calcolo Obiettivo</label>
+                        <div className="grid grid-cols-2 gap-2 p-1 bg-slate-900 rounded-lg border border-slate-600">
+                            <button
+                                onClick={() => onSettingsChange({ profitCalculationMode: ProfitCalculationMode.SERIES })}
+                                className={`w-full py-2 text-sm font-semibold rounded-md transition-colors duration-200 ${settings.profitCalculationMode === ProfitCalculationMode.SERIES ? 'bg-cyan-600 text-white shadow' : 'bg-transparent text-slate-300 hover:bg-slate-700'}`}
+                                aria-pressed={settings.profitCalculationMode === ProfitCalculationMode.SERIES}
+                            >
+                                Su Serie
+                            </button>
+                            <button
+                                onClick={() => onSettingsChange({ profitCalculationMode: ProfitCalculationMode.STEP })}
+                                className={`w-full py-2 text-sm font-semibold rounded-md transition-colors duration-200 ${settings.profitCalculationMode === ProfitCalculationMode.STEP ? 'bg-cyan-600 text-white shadow' : 'bg-transparent text-slate-300 hover:bg-slate-700'}`}
+                                aria-pressed={settings.profitCalculationMode === ProfitCalculationMode.STEP}
+                            >
+                                Su Step
+                            </button>
+                        </div>
+                    </div>
                     <Input label="Max Drawdown (%)" name="maxDrawdownPerc" value={settings.maxDrawdownPerc} onChange={handleInputChange} />
                     <Input label="Reinvestimento (%)" name="reinvestmentPerc" value={settings.reinvestmentPerc} onChange={handleInputChange} />
                     <div>
@@ -117,14 +215,56 @@ const SettingsPanel: React.FC<ControlPanelProps> = ({ settings, onSettingsChange
                         value={settings.lossRecoveryPerc} 
                         onChange={handleInputChange} 
                     />
-                    <button
-                        onClick={onRegenerate}
-                        className="w-full mt-4 bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300 shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-cyan-500 focus:ring-offset-slate-800"
-                    >
-                        Ricrea Progressione
-                    </button>
+                    <div className="grid grid-cols-2 gap-2 pt-2">
+                         <button
+                            onClick={onRegenerate}
+                            className="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300 shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-cyan-500 focus:ring-offset-slate-800 flex items-center justify-center"
+                        >
+                           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 110 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" /></svg>
+                            Ricrea
+                        </button>
+                         <button
+                            onClick={handleSave}
+                            disabled={progression.length === 0}
+                            className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300 shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 focus:ring-offset-slate-800 disabled:bg-slate-600 disabled:cursor-not-allowed flex items-center justify-center"
+                        >
+                           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v12l-5-3-5 3V4z" /></svg>
+                            Salva
+                        </button>
+                    </div>
                 </div>
             </div>
+            
+            <details className="border-t border-slate-700 pt-4 group">
+                <summary className="text-lg font-semibold text-cyan-300 cursor-pointer list-none flex items-center justify-between">
+                    <span>Gestione Salvataggi</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 transition-transform group-open:rotate-180" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                </summary>
+                <div className="mt-4 space-y-3">
+                    {savedStates.length > 0 ? (
+                        <>
+                            <select 
+                                value={selectedStateName} 
+                                onChange={e => setSelectedStateName(e.target.value)}
+                                className="w-full bg-slate-900 border border-slate-600 text-yellow-300 rounded-md shadow-sm focus:ring-cyan-500 focus:border-cyan-500 px-3 py-2"
+                            >
+                                <option value="">-- Seleziona una progressione --</option>
+                                {savedStates.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+                            </select>
+                            <div className="grid grid-cols-2 gap-2">
+                                <button onClick={handleLoad} disabled={!selectedStateName} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300 disabled:bg-slate-600 disabled:cursor-not-allowed">
+                                    Carica
+                                </button>
+                                <button onClick={handleDelete} disabled={!selectedStateName} className="w-full bg-red-700 hover:bg-red-800 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300 disabled:bg-slate-600 disabled:cursor-not-allowed">
+                                    Elimina
+                                </button>
+                            </div>
+                        </>
+                    ) : (
+                        <p className="text-sm text-slate-400 text-center bg-slate-900/50 p-3 rounded-md">Nessuna progressione salvata.</p>
+                    )}
+                </div>
+            </details>
 
              <BetfairCalculator />
         </div>
@@ -136,12 +276,12 @@ const Input: React.FC<{label: string; name: string; value: number; onChange: (e:
     <div>
         <label htmlFor={name} className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
         <input
-            type="number"
+            type="text"
+            inputMode="decimal"
             id={name}
             name={name}
-            value={value}
+            value={String(value).replace('.', ',')}
             onChange={onChange}
-            step="any"
             className="w-full bg-slate-900 border border-slate-600 text-yellow-300 rounded-md shadow-sm focus:ring-cyan-500 focus:border-cyan-500 px-3 py-2 text-center"
         />
     </div>

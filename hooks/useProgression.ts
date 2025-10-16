@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Settings, ProgressionRow, BetType, BetOutcome, CalculationMode } from '../types';
+import { Settings, ProgressionRow, BetType, BetOutcome, CalculationMode, ProfitCalculationMode } from '../types';
 
 const useProgression = (settings: Settings) => {
     const [progression, setProgression] = useState<ProgressionRow[]>([]);
@@ -36,12 +36,10 @@ const useProgression = (settings: Settings) => {
 
         if (calculationMode === CalculationMode.FIXED_STAKE) {
             if (currentType === BetType.LAY) {
-                // For LAY, the user fixes the liability. The value is passed in the liability property.
                 liability = currentRow.liability;
                 stake = (currentOdds > 1) ? liability / (currentOdds - 1) : 0;
                 potentialWin = stake;
             } else { // BACK
-                // For BACK, the user fixes the stake. The value is passed in the stake property.
                 stake = currentRow.stake;
                 liability = stake;
                 potentialWin = (currentOdds > 1) ? stake * (currentOdds - 1) : 0;
@@ -65,8 +63,8 @@ const useProgression = (settings: Settings) => {
 
         return {
             startBankroll,
-            stake: stake > 0 ? stake : 0,
-            liability: liability > 0 ? liability : 0,
+            stake: stake > 0 ? parseFloat(stake.toFixed(2)) : 0,
+            liability: liability > 0 ? parseFloat(liability.toFixed(2)) : 0,
             potentialWin: potentialWin > 0 ? potentialWin : 0,
             endBankroll: startBankroll,
             remainingWins: winsNeeded,
@@ -75,9 +73,11 @@ const useProgression = (settings: Settings) => {
     }, [settings.stopOnTarget]);
 
     const recalculateFullProgression = useCallback((baseProgression: ProgressionRow[], currentSettings: Settings): ProgressionRow[] => {
-        const { initialBankroll, expectedWins, profitTargetPerc, maxDrawdownPerc, lossRecoveryPerc } = currentSettings;
-        const profitTarget = initialBankroll * (profitTargetPerc / 100);
-        const profitPerWin = expectedWins > 0 ? profitTarget / expectedWins : 0;
+        const { initialBankroll, expectedWins, profitTargetPerc, maxDrawdownPerc, lossRecoveryPerc, profitCalculationMode } = currentSettings;
+        
+        const seriesProfitTarget = initialBankroll * (profitTargetPerc / 100);
+        const seriesProfitPerWin = expectedWins > 0 ? seriesProfitTarget / expectedWins : 0;
+        
         const stopLossBankroll = initialBankroll * (1 - (maxDrawdownPerc / 100));
 
         let winsCounter = expectedWins as number;
@@ -88,6 +88,14 @@ const useProgression = (settings: Settings) => {
         for (const currentRow of baseProgression) {
             const prevRow = recalculatedProgression.length > 0 ? recalculatedProgression[recalculatedProgression.length - 1] : null;
             
+            const startBankroll = prevRow ? prevRow.endBankroll : initialBankroll;
+            
+            let profitPerWin = seriesProfitPerWin;
+            if (profitCalculationMode === ProfitCalculationMode.STEP) {
+                const stepProfitTarget = startBankroll * (profitTargetPerc / 100);
+                profitPerWin = winsCounter > 0 ? stepProfitTarget / winsCounter : 0;
+            }
+
             const recoveryAmountForThisBet = lossAmortizationQueue.shift() || 0;
 
             let updatedRow: ProgressionRow;
@@ -96,13 +104,13 @@ const useProgression = (settings: Settings) => {
                 const calculatedFields = calculateRow(prevRow, initialBankroll, stopLossBankroll, profitPerWin, winsCounter, recoveryAmountForThisBet, currentRow);
                 updatedRow = { ...currentRow, ...calculatedFields };
             } else {
-                const startBankroll = prevRow ? prevRow.endBankroll : initialBankroll;
                 let endBankroll = startBankroll;
                 
+                // FIX: Changed BetType.Won to BetOutcome.Won as 'Won' is part of the BetOutcome enum.
                 if (currentRow.outcome === BetOutcome.Won) {
                     endBankroll = startBankroll + currentRow.potentialWin;
                     
-                    if (currentRow.calculationMode === CalculationMode.FIXED_STAKE && profitPerWin > 0) {
+                     if (profitPerWin > 0) {
                         const winsFulfilled = currentRow.potentialWin / profitPerWin;
                         winsCounter = Math.max(0, winsCounter - winsFulfilled);
                     } else {
@@ -125,7 +133,6 @@ const useProgression = (settings: Settings) => {
                     }
                 } else if (currentRow.outcome === BetOutcome.Cashout) {
                     endBankroll = startBankroll + currentRow.cashout;
-                     // Assuming cashout is like a win for progression purposes
                     winsCounter = Math.max(0, winsCounter - 1);
                 }
                 updatedRow = { ...currentRow, startBankroll, endBankroll, remainingWins: winsCounter };
@@ -162,11 +169,6 @@ const useProgression = (settings: Settings) => {
         }
         setProgression(recalculateFullProgression(newProgression, settings));
     }, [settings, recalculateFullProgression]);
-
-
-    useEffect(() => {
-        generateProgression();
-    }, [generateProgression]);
 
     const updateProgressionRow = (id: number, newValues: Partial<ProgressionRow>) => {
         setProgression(currentProgression => {
@@ -230,7 +232,7 @@ const useProgression = (settings: Settings) => {
         });
     };
 
-    return { progression, updateProgressionRow, generateProgression, addRow, deleteRow };
+    return { progression, setProgression, updateProgressionRow, generateProgression, addRow, deleteRow };
 };
 
 export default useProgression;
