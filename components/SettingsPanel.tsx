@@ -24,7 +24,7 @@ const BetfairCalculator: React.FC = () => {
     const [layOdds, setLayOdds] = useState(2.1);
 
     const netBackOdds = useMemo(() => (backOdds - 1) * (1 - commission / 100) + 1, [backOdds, commission]);
-    const inverseLayOdds = useMemo(() => layOdds / (layOdds - 1), [layOdds]);
+    const inverseLayOdds = useMemo(() => layOdds > 1 ? layOdds / (layOdds - 1) : 0, [layOdds]);
 
     return (
         <div className="bg-slate-900/50 border border-slate-700 p-4 rounded-lg">
@@ -33,17 +33,17 @@ const BetfairCalculator: React.FC = () => {
                 Betfair Calculator
             </h3>
             <div className="space-y-3">
-                <CalcInput label="Commissione (%)" value={commission} onChange={e => setCommission(parseFloat(e.target.value.replace(',', '.')) || 0)} />
+                <CalcInput label="Commissione (%)" value={commission} onValueChange={setCommission} />
                 <hr className="border-slate-700" />
                 <div>
                     <h4 className="font-semibold text-gray-300 text-sm mb-2">Quota BACK Netta</h4>
-                    <CalcInput label="Quota BACK" value={backOdds} onChange={e => setBackOdds(parseFloat(e.target.value.replace(',', '.')) || 0)} />
+                    <CalcInput label="Quota BACK" value={backOdds} onValueChange={setBackOdds} />
                     <p className="text-sm mt-2">Quota Netta: <span className="font-bold text-yellow-300">{netBackOdds.toFixed(2)}</span></p>
                 </div>
                 <hr className="border-slate-700" />
                 <div>
                     <h4 className="font-semibold text-gray-300 text-sm mb-2">Inversione Quota LAY</h4>
-                     <CalcInput label="Quota LAY" value={layOdds} onChange={e => setLayOdds(parseFloat(e.target.value.replace(',', '.')) || 0)} />
+                     <CalcInput label="Quota LAY" value={layOdds} onValueChange={setLayOdds} />
                     <p className="text-sm mt-2">Quota Inversa (BACK): <span className="font-bold text-yellow-300">{inverseLayOdds.toFixed(2)}</span></p>
                 </div>
             </div>
@@ -51,12 +51,36 @@ const BetfairCalculator: React.FC = () => {
     );
 };
 
-const CalcInput: React.FC<{label: string; value: number; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;}> = ({label, value, onChange}) => (
-    <div>
-        <label className="block text-xs font-medium text-gray-400 mb-1">{label}</label>
-        <input type="text" inputMode="decimal" value={String(value).replace('.', ',')} onChange={onChange} className="w-full bg-slate-800 border-slate-600 rounded px-2 py-1 text-sm text-yellow-300 focus:ring-cyan-500 focus:border-cyan-500" />
-    </div>
-);
+const CalcInput: React.FC<{label: string; value: number; onValueChange: (value: number) => void;}> = ({label, value, onValueChange}) => {
+    const [displayValue, setDisplayValue] = useState(String(value).replace('.', ','));
+
+    useEffect(() => {
+        setDisplayValue(String(value).replace('.', ','));
+    }, [value]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setDisplayValue(e.target.value);
+    };
+
+    const handleBlur = () => {
+        const numericValue = parseFloat(displayValue.replace(/,/g, '.')) || 0;
+        onValueChange(numericValue);
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            handleBlur();
+            (e.target as HTMLInputElement).blur();
+        }
+    };
+    
+    return (
+        <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">{label}</label>
+            <input type="text" inputMode="decimal" value={displayValue} onChange={handleChange} onBlur={handleBlur} onKeyDown={handleKeyDown} className="w-full bg-slate-800 border-slate-600 rounded px-2 py-1 text-sm text-yellow-300 focus:ring-cyan-500 focus:border-cyan-500" />
+        </div>
+    );
+};
 
 
 const SettingsPanel: React.FC<ControlPanelProps> = ({ settings, progression, onSettingsChange, onRegenerate, onLoad }) => {
@@ -69,7 +93,6 @@ const SettingsPanel: React.FC<ControlPanelProps> = ({ settings, progression, onS
             const rawData = localStorage.getItem(STORAGE_KEY);
             if (rawData) {
                 const parsedData: SavedState[] = JSON.parse(rawData);
-                // Ensure legacy saves without the new setting get a default value
                 const sanitizedData = parsedData.map(s => ({
                     ...s,
                     settings: {
@@ -77,7 +100,7 @@ const SettingsPanel: React.FC<ControlPanelProps> = ({ settings, progression, onS
                         profitCalculationMode: s.settings.profitCalculationMode || ProfitCalculationMode.SERIES,
                     }
                 }));
-                sanitizedData.sort((a, b) => b.timestamp - a.timestamp); // Sort by most recent
+                sanitizedData.sort((a, b) => b.timestamp - a.timestamp);
                 setSavedStates(sanitizedData);
             }
         } catch (error) {
@@ -129,17 +152,12 @@ const SettingsPanel: React.FC<ControlPanelProps> = ({ settings, progression, onS
         const newStates = savedStates.filter(s => s.name !== selectedStateName);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(newStates));
         setSavedStates(newStates);
-        setSelectedStateName(''); // Reset selection
+        setSelectedStateName('');
         alert(`Progressione "${selectedStateName}" eliminata.`);
     };
     
-    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { name, value, type, checked } = e.target;
-        if (type === 'checkbox') {
-            onSettingsChange({ [name]: checked });
-        } else {
-            onSettingsChange({ [name]: parseFloat(value.replace(',', '.')) || 0 });
-        }
+    const handleValueChange = (name: string, value: number) => {
+        onSettingsChange({ [name]: value });
     };
 
     return (
@@ -147,10 +165,10 @@ const SettingsPanel: React.FC<ControlPanelProps> = ({ settings, progression, onS
             <div>
                  <h2 className="text-xl font-bold text-cyan-300 mb-4 border-b border-cyan-800 pb-2">Impostazioni</h2>
                 <div className="space-y-3">
-                    <Input label="Banca Iniziale (€)" name="initialBankroll" value={settings.initialBankroll} onChange={handleInputChange} />
-                    <Input label="Numero totale degli eventi" name="totalEvents" value={settings.totalEvents} onChange={handleInputChange} />
-                    <Input label="Numero minimo di eventi attesi" name="expectedWins" value={settings.expectedWins} onChange={handleInputChange} />
-                    <Input label="Obiettivo Utile (%)" name="profitTargetPerc" value={settings.profitTargetPerc} onChange={handleInputChange} />
+                    <Input label="Banca Iniziale (€)" name="initialBankroll" value={settings.initialBankroll} onValueChange={handleValueChange} />
+                    <Input label="Numero totale degli eventi" name="totalEvents" value={settings.totalEvents} onValueChange={handleValueChange} />
+                    <Input label="Numero minimo di eventi attesi" name="expectedWins" value={settings.expectedWins} onValueChange={handleValueChange} />
+                    <Input label="Obiettivo Utile (%)" name="profitTargetPerc" value={settings.profitTargetPerc} onValueChange={handleValueChange} />
                     <div>
                         <label className="block text-sm font-medium text-gray-300 mb-2">Calcolo Obiettivo</label>
                         <div className="grid grid-cols-2 gap-2 p-1 bg-slate-900 rounded-lg border border-slate-600">
@@ -170,10 +188,10 @@ const SettingsPanel: React.FC<ControlPanelProps> = ({ settings, progression, onS
                             </button>
                         </div>
                     </div>
-                    <Input label="Max Drawdown (%)" name="maxDrawdownPerc" value={settings.maxDrawdownPerc} onChange={handleInputChange} />
-                    <Input label="Reinvestimento (%)" name="reinvestmentPerc" value={settings.reinvestmentPerc} onChange={handleInputChange} />
+                    <Input label="Max Drawdown (%)" name="maxDrawdownPerc" value={settings.maxDrawdownPerc} onValueChange={handleValueChange} />
+                    <Input label="Reinvestimento (%)" name="reinvestmentPerc" value={settings.reinvestmentPerc} onValueChange={handleValueChange} />
                     <div>
-                        <Input label="Quota di riferimento" name="referenceOdds" value={settings.referenceOdds} onChange={handleInputChange} />
+                        <Input label="Quota di riferimento" name="referenceOdds" value={settings.referenceOdds} onValueChange={handleValueChange} />
                         <p className="text-xs text-slate-400 mt-1 pl-1">(Imposta a 0 per inserire le quote manualmente)</p>
                     </div>
                     <div>
@@ -213,7 +231,7 @@ const SettingsPanel: React.FC<ControlPanelProps> = ({ settings, progression, onS
                         label="Recupero Perdite (%)" 
                         name="lossRecoveryPerc" 
                         value={settings.lossRecoveryPerc} 
-                        onChange={handleInputChange} 
+                        onValueChange={handleValueChange} 
                     />
                     <div className="grid grid-cols-2 gap-2 pt-2">
                          <button
@@ -272,19 +290,45 @@ const SettingsPanel: React.FC<ControlPanelProps> = ({ settings, progression, onS
 };
 
 
-const Input: React.FC<{label: string; name: string; value: number; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;}> = ({ label, name, value, onChange }) => (
-    <div>
-        <label htmlFor={name} className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
-        <input
-            type="text"
-            inputMode="decimal"
-            id={name}
-            name={name}
-            value={String(value).replace('.', ',')}
-            onChange={onChange}
-            className="w-full bg-slate-900 border border-slate-600 text-yellow-300 rounded-md shadow-sm focus:ring-cyan-500 focus:border-cyan-500 px-3 py-2 text-center"
-        />
-    </div>
-);
+const Input: React.FC<{label: string; name: string; value: number; onValueChange: (name: string, value: number) => void;}> = ({ label, name, value, onValueChange }) => {
+    const [displayValue, setDisplayValue] = useState(String(value).replace('.', ','));
+
+    useEffect(() => {
+        setDisplayValue(String(value).replace('.', ','));
+    }, [value]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setDisplayValue(e.target.value);
+    };
+
+    const handleBlur = () => {
+        const numericValue = parseFloat(displayValue.replace(/,/g, '.')) || 0;
+        onValueChange(name, numericValue);
+    };
+    
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            handleBlur();
+            (e.target as HTMLInputElement).blur();
+        }
+    };
+
+    return (
+        <div>
+            <label htmlFor={name} className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
+            <input
+                type="text"
+                inputMode="decimal"
+                id={name}
+                name={name}
+                value={displayValue}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                onKeyDown={handleKeyDown}
+                className="w-full bg-slate-900 border border-slate-600 text-yellow-300 rounded-md shadow-sm focus:ring-cyan-500 focus:border-cyan-500 px-3 py-2 text-center"
+            />
+        </div>
+    );
+};
 
 export default SettingsPanel;
