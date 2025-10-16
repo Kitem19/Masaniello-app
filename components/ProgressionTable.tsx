@@ -50,6 +50,61 @@ const EditableCell: React.FC<{ value: string; onSave: (newValue: string) => void
     );
 };
 
+const RowInput: React.FC<{
+    initialValue: number;
+    onSave: (newValue: number) => void;
+    disabled: boolean;
+    className?: string;
+    precision?: number;
+}> = ({ initialValue, onSave, disabled, className, precision = 2 }) => {
+    const [inputValue, setInputValue] = useState(initialValue.toFixed(precision));
+    const [isEditing, setIsEditing] = useState(false);
+
+    useEffect(() => {
+        if (!isEditing) {
+            setInputValue(initialValue.toFixed(precision));
+        }
+    }, [initialValue, isEditing, precision]);
+
+    const handleBlur = () => {
+        setIsEditing(false);
+        const sanitized = inputValue.replace(',', '.');
+        const numericValue = parseFloat(sanitized);
+        
+        if (!isNaN(numericValue)) {
+            onSave(numericValue);
+        } else {
+            setInputValue(initialValue.toFixed(precision));
+        }
+    };
+    
+    return (
+        <input
+            type="text"
+            inputMode="decimal"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onFocus={() => {
+                setIsEditing(true);
+                setInputValue(initialValue.toString().replace(',', '.'));
+            }}
+            onBlur={handleBlur}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                    (e.target as HTMLInputElement).blur();
+                } else if (e.key === 'Escape') {
+                    setInputValue(initialValue.toFixed(precision));
+                    setIsEditing(false);
+                    (e.target as HTMLInputElement).blur();
+                }
+            }}
+            disabled={disabled}
+            className={className}
+        />
+    );
+};
+
+
 const ProgressionTable: React.FC<ProgressionTableProps> = ({ rows, onUpdateRow, onAddRow, onDeleteRow }) => {
     const isRowEditable = (row: ProgressionRow) => row.outcome === BetOutcome.NotPlayed;
 
@@ -92,11 +147,9 @@ const ProgressionTable: React.FC<ProgressionTableProps> = ({ rows, onUpdateRow, 
                                     </td>
                                     <td className="p-3 text-right">{formatCurrency(row.startBankroll)}</td>
                                     <td className="p-1">
-                                        <input
-                                            type="number"
-                                            step="0.01"
-                                            value={row.odds}
-                                            onChange={(e) => onUpdateRow(row.id, { odds: parseFloat(e.target.value.replace(',', '.')) || 0 })}
+                                        <RowInput
+                                            initialValue={row.odds}
+                                            onSave={(val) => onUpdateRow(row.id, { odds: val })}
                                             disabled={!editable}
                                             className="w-full bg-slate-800 border-slate-600 rounded px-2 py-1 text-yellow-300 disabled:bg-transparent disabled:border-transparent disabled:text-slate-300 text-center"
                                         />
@@ -124,21 +177,17 @@ const ProgressionTable: React.FC<ProgressionTableProps> = ({ rows, onUpdateRow, 
                                         </button>
                                     </td>
                                     <td className="p-1">
-                                         <input
-                                            type="number"
-                                            step="0.01"
-                                            value={row.stake}
-                                            onChange={(e) => onUpdateRow(row.id, { stake: parseFloat(e.target.value) || 0 })}
+                                         <RowInput
+                                            initialValue={row.stake}
+                                            onSave={(val) => onUpdateRow(row.id, { stake: val })}
                                             disabled={!editable || !isFixedStake || row.type !== BetType.BACK}
                                             className="w-full bg-slate-800 border-slate-600 rounded px-2 py-1 text-yellow-300 disabled:bg-transparent disabled:border-transparent disabled:text-slate-300 text-right"
                                         />
                                     </td>
                                     <td className="p-1">
-                                         <input
-                                            type="number"
-                                            step="0.01"
-                                            value={row.liability}
-                                            onChange={(e) => onUpdateRow(row.id, { liability: parseFloat(e.target.value) || 0 })}
+                                         <RowInput
+                                            initialValue={row.liability}
+                                            onSave={(val) => onUpdateRow(row.id, { liability: val })}
                                             disabled={!editable || !isFixedStake || row.type !== BetType.LAY}
                                             className="w-full bg-slate-800 border-slate-600 rounded px-2 py-1 text-red-400 disabled:bg-transparent disabled:border-transparent disabled:text-slate-300 text-right"
                                         />
@@ -169,7 +218,8 @@ const ProgressionTable: React.FC<ProgressionTableProps> = ({ rows, onUpdateRow, 
                                     <td className="p-1 text-center">
                                         <button 
                                             onClick={() => onDeleteRow(row.id)} 
-                                            className="p-2 rounded-full text-slate-500 hover:bg-red-900 hover:text-red-300 transition-colors"
+                                            disabled={!editable}
+                                            className="p-2 rounded-full text-slate-500 hover:bg-red-900 hover:text-red-300 transition-colors disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-slate-500"
                                             aria-label="Elimina evento"
                                         >
                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clipRule="evenodd" /></svg>
