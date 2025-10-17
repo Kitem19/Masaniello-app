@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Settings, ProgressionRow, BetType, BetOutcome, CalculationMode, ProfitCalculationMode } from '../types';
 
 const useProgression = (settings: Settings) => {
@@ -17,9 +17,16 @@ const useProgression = (settings: Settings) => {
         const { odds: currentOdds, type: currentType, calculationMode } = currentRow;
         const startBankroll = prevRow ? prevRow.endBankroll : initialBankroll;
         
-        if (winsNeeded <= 0 && settings.stopOnTarget) {
+        const { stopOnTarget, expectedWins, profitTargetPerc } = settings;
+        const targetBankroll = initialBankroll * (1 + (profitTargetPerc / 100));
+
+        const isWinTargetMet = expectedWins > 0 && winsNeeded <= 0;
+        const isProfitTargetMet = profitTargetPerc > 0 && startBankroll >= targetBankroll;
+
+        if (stopOnTarget && (isWinTargetMet || isProfitTargetMet)) {
             return { status: 'Obiettivo Raggiunto', startBankroll, endBankroll: startBankroll, stake: 0, liability: 0, potentialWin: 0, remainingWins: 0 };
         }
+        
         if (startBankroll <= stopLossBankroll) {
             return { status: 'Stop Loss', startBankroll, endBankroll: startBankroll, stake: 0, liability: 0, potentialWin: 0, remainingWins: winsNeeded };
         }
@@ -70,7 +77,7 @@ const useProgression = (settings: Settings) => {
             remainingWins: winsNeeded,
             status: 'Attivo',
         };
-    }, [settings.stopOnTarget]);
+    }, [settings.stopOnTarget, settings.expectedWins, settings.profitTargetPerc]);
 
     const recalculateFullProgression = useCallback((baseProgression: ProgressionRow[], currentSettings: Settings): ProgressionRow[] => {
         const { initialBankroll, expectedWins, profitTargetPerc, maxDrawdownPerc, lossRecoveryPerc, profitCalculationMode } = currentSettings;
@@ -106,17 +113,9 @@ const useProgression = (settings: Settings) => {
             } else {
                 let endBankroll = startBankroll;
                 
-                // FIX: Changed BetType.Won to BetOutcome.Won as 'Won' is part of the BetOutcome enum.
                 if (currentRow.outcome === BetOutcome.Won) {
                     endBankroll = startBankroll + currentRow.potentialWin;
-                    
-                     if (profitPerWin > 0) {
-                        const winsFulfilled = currentRow.potentialWin / profitPerWin;
-                        winsCounter = Math.max(0, winsCounter - winsFulfilled);
-                    } else {
-                        winsCounter = Math.max(0, winsCounter - 1);
-                    }
-
+                    winsCounter = Math.max(0, winsCounter - 1);
                 } else if (currentRow.outcome === BetOutcome.Lost) {
                     endBankroll = startBankroll - currentRow.liability;
                     if (recoveryAmountForThisBet > 0) {
